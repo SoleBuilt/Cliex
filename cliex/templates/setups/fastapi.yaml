@@ -1,0 +1,16 @@
+steps:
+- type: run
+  name: create-venv
+  cmd: python -m venv .venv
+
+- type: run
+  name: open-venv
+  cmd: .venv\Scripts\activate
+
+- type: run
+  name: install-deps
+  cmd: 'pip install "fastapi[standard]"'
+
+- type: run
+  name: run-server
+  cmd: fastapi dev
