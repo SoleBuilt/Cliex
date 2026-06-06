@@ -1,0 +1,77 @@
+# GitLab CI — test on every push/MR, publish to PyPI when a version tag is pushed.
+# Tag format: v0.1.0 (must match version in pyproject.toml)
+#
+# Required CI/CD variable (Settings → CI/CD → Variables):
+#   PYPI_API_TOKEN — PyPI API token (scope: entire account or project "cliex")
+
+stages:
+  - test
+  - build
+  - release
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cache/pip
+
+.test_template: &test_template
+  stage: test
+  image: python:3.11
+  before_script:
+    - python --version
+    - pip install flit
+    - pip install -e .
+  script:
+    - python -c "import cliex; print('version:', cliex.__version__)"
+    - python -m cliex list
+
+test:branch:
+  <<: *test_template
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:tag:
+  <<: *test_template
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+build:
+  stage: build
+  image: python:3.11
+  script:
+    - pip install flit
+    - python -m flit build
+    - ls -la dist/
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+publish:pypi:
+  stage: release
+  image: python:3.11
+  needs:
+    - job: build
+      artifacts: true
+  script:
+    - pip install twine
+    - twine check dist/*
+    - >
+      twine upload dist/*
+      --username __token__
+      --password "$PYPI_API_TOKEN"
+      --non-interactive
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+  environment:
+    name: pypi
+    url: https://pypi.org/project/cliex/

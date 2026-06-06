@@ -21,19 +21,49 @@ The source code is **free and open** for the community. You may use, modify, and
 
 ## Installation
 
-### Install from source (recommended for development)
+### Option 1 — PyPI (recommended for end users)
+
+Requires Python 3.11+.
+
+```bash
+# Recommended: isolated install
+pipx install cliex
+
+# Or with pip
+pip install cliex
+```
+
+Verify:
+
+```bash
+cliex list
+```
+
+**Update to the latest version:**
+
+```bash
+pipx upgrade cliex
+# or
+pip install -U cliex
+```
+
+### Option 2 — GitHub Releases
+
+Download a wheel from [Releases](https://github.com/DucHuynhTrung/cliex-quick/releases) or install directly:
+
+```bash
+pip install https://github.com/DucHuynhTrung/cliex-quick/releases/download/v0.1.0/cliex-0.1.0-py3-none-any.whl
+```
+
+Replace `v0.1.0` with the latest tag.
+
+### Option 3 — Install from source (development)
 
 ```bash
 git clone https://github.com/DucHuynhTrung/cliex-quick.git
 cd cliex-quick
 
 pip install -e .
-```
-
-### Regular install
-
-```bash
-pip install .
 ```
 
 ### Using uv (optional)
@@ -49,6 +79,8 @@ uv pip install -e .
 ```
 
 After installation, the `cliex` command is available in your terminal.
+
+> **Maintainers:** see [docs/RELEASE.md](docs/RELEASE.md) for the full GitLab → GitHub mirror → PyPI + Releases workflow.
 
 ## Usage
 

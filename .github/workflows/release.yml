@@ -1,0 +1,45 @@
+# GitHub Actions — runs when a version tag is mirrored from GitLab to GitHub.
+# Creates a GitHub Release and attaches wheel + sdist for users who install from Releases.
+#
+# Enable: GitHub repo → Settings → Actions → General → Allow all actions.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build package
+        run: |
+          pip install flit
+          python -m flit build
+          ls -la dist/
+
+      - name: Verify package
+        run: |
+          pip install twine
+          twine check dist/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
