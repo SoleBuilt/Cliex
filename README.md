@@ -1,5 +1,9 @@
 # Cliex
 
+<p align="center">
+  <img src="Panel Cliex.png" alt="Cliex — One command. Ready to build." width="100%" />
+</p>
+
 **Cliex** is a Python CLI tool that helps you bootstrap projects quickly using **setup profiles** defined in YAML. Instead of retyping dozens of install commands every time you start a new project, you run one command — Cliex executes the entire setup workflow for you.
 
 The source code is **free and open** for the community. You may use, modify, and share it freely under the MIT license.
