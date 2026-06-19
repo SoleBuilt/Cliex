@@ -1,7 +1,9 @@
+name: nextjs-setup
+description: A Next.js project setup with TypeScript, Tailwind CSS, ESLint, Shadcn UI, Firebase, and agent skills.
 steps:
   - type: run
     name: create-next-app
-    cmd: npx create-next-app@latest . --typescript --tailwind --eslint --app --yes
+    cmd: npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --yes
 
   - type: run
     name: install-packages
@@ -9,16 +11,16 @@ steps:
 
   - type: run
     name: shadcn-init
-    cmd: npx shadcn@latest init --preset b3kILCNiD --template next --rtl --pointer --yes
+    cmd: npx --yes shadcn@latest init --preset b3kILCNiD --template next --rtl --pointer --yes
 
   - type: run
     name: shadcn-add
-    cmd: npx shadcn@latest add alert avatar badge button button-group card dialog dropdown-menu field input input-group label form scroll-area select separator sheet sidebar skeleton table tabs textarea tooltip --yes
+    cmd: npx --yes shadcn@latest add alert avatar badge button button-group card dialog dropdown-menu field input input-group label form scroll-area select separator sheet sidebar skeleton table tabs textarea tooltip --overwrite --yes
 
   # Install agent skill
   - type: run
     name: install-agent-skill-shadcn-ui
-    cmd: npx skills add shadcn/ui --agents claude --yes
+    cmd: npx --yes skills add shadcn/ui --agents claude --yes
 
   - type: run
     name: update-agent-skill-ui-ux-pro-max
@@ -29,13 +31,14 @@ steps:
     cmd: uipro init --ai antigravity
 
   # Copy skill ui-ux-pro-max vào trong folder .agent + xóa folder thừa
-  - type: run
+  - type: copy
     name: copy-agents-to-agent
-    cmd: xcopy .agents\skills .agent\skills /E /Y
+    src: .agents/skills
+    dest: .agent/skills
 
-  - type: run
+  - type: remove
     name: remove-agents-folder
-    cmd: rmdir .agents /s /q
+    path: .agents
 
   # thêm .agents vào file .gitignore
   - type: append
@@ -45,15 +48,7 @@ steps:
       # Ignore agents folder
       .agent
 
-  # Git
-  - type: run
-    name: git-config-username
-    cmd: git config --global user.name 'DucHuynhTrung'
-
-  - type: run
-    name: git-config-email
-    cmd: git config --global user.email 'huynhtrungduc.growth@gmail.com'
-
+  # Git (uses the user's own configured git identity)
   - type: run
     name: git-add
     cmd: git add .

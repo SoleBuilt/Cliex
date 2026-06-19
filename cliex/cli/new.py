@@ -1,29 +1,38 @@
 """New project creation logic."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from rich.console import Console
 
 from cliex.checker.checker import check_required_commands
 from cliex.setup import execute_setup, load_setup_config, resolve_setup_path
+from cliex.setup.variables import render_steps, resolve_context
 
 console = Console()
 
 
-def new_project(project_name: str = ".", setup_name: Optional[str] = None) -> None:
+def new_project(
+    project_name: str = ".",
+    setup_name: Optional[str] = None,
+    cli_vars: Optional[Dict[str, str]] = None,
+    assume_yes: bool = False,
+) -> None:
     """
-    Create a new Next.js project with shadcn/ui, Firebase, and agent skills.
+    Create a new project from a setup profile.
 
     Args:
         project_name: Project name or "." for current directory.
-        setup_name: Optional profile key or YAML setup file path.
+        setup_name: Optional profile key (or 'b:'/'u:' prefix) or YAML file path.
+        cli_vars: Variable overrides from the command line.
+        assume_yes: Skip variable prompts and use declared defaults.
 
     Raises:
         RuntimeError: If any critical step fails.
     """
     if not project_name:
         project_name = "."
+    cli_vars = cli_vars or {}
 
     console.print(f"[bold blue]Creating project: {project_name}[/bold blue]")
 
@@ -55,6 +64,10 @@ def new_project(project_name: str = ".", setup_name: Optional[str] = None) -> No
     setup_path = resolve_setup_path(setup_name)
     console.print(f"[cyan]Using setup: {setup_path.name}[/cyan]")
     config = load_setup_config(setup_path)
+
+    context = resolve_context(config, project_name, project_path, cli_vars, assume_yes)
+    config["steps"] = render_steps(config["steps"], context)
+
     execute_setup(config, project_path)
 
     console.print("[bold green]Project setup completed![/bold green]")
