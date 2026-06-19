@@ -11,13 +11,13 @@ Bạn push tag v0.1.0 lên GitLab
         │
         └─► GitLab mirror tag sang GitHub (vài phút)
                     │
-                    └─► GitHub Actions: build → tạo GitHub Release (kèm .whl)
+                    └─► GitHub Actions: test → build → tạo GitHub Release (kèm .whl)
 ```
 
-| Kênh | Ai chạy CI | User cài | User update |
-|------|------------|----------|-------------|
-| **PyPI** | GitLab CI | `pipx install cliex` | `pipx upgrade cliex` |
-| **GitHub Releases** | GitHub Actions | tải `.whl` hoặc `pip install` URL | tải release mới |
+| Kênh                | Ai chạy CI     | User cài                          | User update          |
+| ------------------- | -------------- | --------------------------------- | -------------------- |
+| **PyPI**            | GitLab CI      | `pipx install cliex`              | `pipx upgrade cliex` |
+| **GitHub Releases** | GitHub Actions | tải `.whl` hoặc `pip install` URL | tải release mới      |
 
 ---
 
@@ -44,12 +44,12 @@ Bạn push tag v0.1.0 lên GitLab
 1. Tạo tài khoản https://test.pypi.org
 2. Tạo API token tương tự
 3. Lần đầu có thể upload thử:
-   ```bash
-   pip install flit twine
-   python -m flit build
-   twine upload --repository testpypi dist/* --username __token__ --password pypi-XXXX
-   pip install -i https://test.pypi.org/simple/ cliex
-   ```
+    ```bash
+    pip install flit twine
+    python -m flit build
+    twine upload --repository testpypi dist/* --username __token__ --password pypi-XXXX
+    pip install -i https://test.pypi.org/simple/ cliex
+    ```
 
 ---
 
@@ -62,8 +62,8 @@ Trên GitLab project:
 1. **Settings** → **CI/CD** → **Variables** → **Add variable**
 2. Thêm:
 
-| Key | Value | Flags |
-|-----|-------|-------|
+| Key              | Value                     | Flags                                                       |
+| ---------------- | ------------------------- | ----------------------------------------------------------- |
 | `PYPI_API_TOKEN` | token PyPI (`pypi-Ag...`) | ✅ Masked, ✅ Protected (nếu chỉ tag trên protected branch) |
 
 > **Protected**: nếu bật, tag phải được tạo trên branch được protect (thường là `main`).
@@ -80,12 +80,13 @@ Kiểm tra: **Build** → **Pipelines** — job `test:branch` chạy khi push co
 2. **Git repository URL**: `https://github.com/DucHuynhTrung/cliex-quick.git`
 3. **Mirror direction**: Push (GitLab → GitHub)
 4. **Authentication**: Personal Access Token GitHub
-   - GitHub → Settings → Developer settings → **Personal access tokens** → **Fine-grained** hoặc **Classic**
-   - Quyền cần: `repo` (full control hoặc contents write)
+    - GitHub → Settings → Developer settings → **Personal access tokens** → **Fine-grained** hoặc **Classic**
+    - Quyền cần: `repo` (full control hoặc contents write)
 5. Bật **Only mirror protected branches** nếu muốn (tùy chọn)
 6. **Keep divergent refs** — thường nên bật
 
 Mirror sẽ đồng bộ:
+
 - ✅ commits, branches, **tags**
 - ❌ GitHub Releases (tạo riêng bằng GitHub Actions)
 - ❌ GitLab CI artifacts
