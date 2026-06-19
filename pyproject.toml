@@ -28,6 +28,9 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
 [project.scripts]
 cliex = "cliex.main:app"
 
@@ -36,6 +39,9 @@ Homepage = "https://github.com/DucHuynhTrung/cliex-quick"
 Repository = "https://github.com/DucHuynhTrung/cliex-quick.git"
 Documentation = "https://github.com/DucHuynhTrung/cliex-quick#readme"
 "Bug Tracker" = "https://github.com/DucHuynhTrung/cliex-quick/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.flit.module]
 name = "cliex"
