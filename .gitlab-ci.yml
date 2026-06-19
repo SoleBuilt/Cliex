@@ -24,10 +24,11 @@ cache:
   before_script:
     - python --version
     - pip install flit
-    - pip install -e .
+    - pip install -e ".[test]"
   script:
     - python -c "import cliex; print('version:', cliex.__version__)"
     - python -m cliex list
+    - pytest -q
 
 test:branch:
   <<: *test_template

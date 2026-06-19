@@ -25,9 +25,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build package
+      - name: Run tests
         run: |
           pip install flit
+          pip install -e ".[test]"
+          pytest -q
+
+      - name: Build package
+        run: |
           python -m flit build
           ls -la dist/
 
