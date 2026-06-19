@@ -110,8 +110,31 @@ cliex new my-app --setup nextjs-setup
 # Short form
 cliex new my-app -s fastapi
 
+# Force the built-in version (ignore your custom override)
+cliex new my-app -s b:nextjs-setup
+
+# Force your custom version
+cliex new my-app -s u:nextjs-setup
+
 # Use a custom YAML file directly
 cliex new my-app --setup path/to/my-setup.yaml
+```
+
+When you have a custom profile and a built-in profile with the same key, the
+custom one wins by default. Use the `b:` prefix to force the built-in, or `u:`
+to force the user version.
+
+### Pass variables
+
+If a profile declares variables, you can provide them on the command line or
+let Cliex prompt you:
+
+```bash
+# Provide values (skips the prompt for those)
+cliex new my-app -s my-profile --var git_user=Duc --var app_title="My App"
+
+# Use declared defaults without prompting
+cliex new my-app -s my-profile --yes
 ```
 
 ### List available profiles
@@ -122,21 +145,54 @@ cliex list
 
 This displays all registered profiles, their source (package or user), and which one is the default.
 
-### Create or edit a profile
+### Create, fork, or edit a profile
 
 ```bash
-# Create a new profile (or open the file if it already exists)
+# Create a new profile, fork a built-in to customize it, or open an existing one
 cliex registry my-custom-setup
 
-# Edit profile metadata
-cliex metadata
+# Fork the built-in nextjs-setup into an editable local copy
+cliex registry nextjs-setup
 ```
 
-When creating a new profile, Cliex will:
+`cliex registry <key>` always writes to your user setup directory and:
 
-1. Create a `my-custom-setup.yaml` file with a sample template
-2. Automatically register the profile in `cliex-metadata.yaml`
-3. Open the file in your system's default text editor
+1. If you already have a user profile with that key → opens it.
+2. Else if a built-in with that key exists → copies it into your user directory
+   as a local override, then opens it. Future app updates won't touch your copy.
+3. Else → creates a new `<key>.yaml` template (with `name`, `description`, and a
+   sample step) and opens it.
+
+The file is opened in your system's default text editor. Profile metadata
+(`name`, `description`) lives inside the file itself, so profiles are
+self-describing and easy to share.
+
+### Set the default profile
+
+```bash
+cliex set-default fastapi
+```
+
+`cliex new` with no `--setup` uses this default. The setting is stored per-user
+in `config.yaml` (it is never embedded in a shared profile).
+
+### Revert a customized built-in
+
+```bash
+cliex reset nextjs-setup
+```
+
+Removes your local override and goes back to the built-in profile.
+
+### Validate profiles
+
+```bash
+# Validate one profile
+cliex validate nextjs-setup
+
+# Validate all profiles
+cliex validate
+```
 
 ### Run without installing
 
@@ -150,10 +206,13 @@ python -m cliex list
 | Command | Description |
 |---------|-------------|
 | `cliex new [PROJECT_NAME]` | Create a new project using a setup profile |
-| `cliex new --setup <profile>` | Select a specific profile or YAML file |
+| `cliex new --setup <profile>` | Select a profile (`b:`/`u:` prefix or YAML file) |
+| `cliex new --var k=v` `--yes` | Provide profile variables / skip prompts |
 | `cliex list` | List all setup profiles |
-| `cliex registry <name>` | Create or edit a profile YAML file |
-| `cliex metadata` | Open `cliex-metadata.yaml` to edit metadata |
+| `cliex registry <name>` | Create, fork, or edit a profile YAML file |
+| `cliex set-default <name>` | Set the default profile |
+| `cliex reset <name>` | Remove a custom override, revert to built-in |
+| `cliex validate [name]` | Validate one or all profiles |
 
 ## Built-in setup profiles
 
@@ -175,35 +234,70 @@ When you run `cliex new my-app -s nextjs-setup`, Cliex will:
 4. Initialize shadcn/ui and add common components
 5. Install agent skills for Claude
 6. Initialize git and commit the changes
+7. Add your customizations.
+
+And you're ready to write code.
 
 ## Customizing setup profiles
 
-Each profile is a YAML file with a list of `steps`. Supported step types:
+Each profile is a YAML file with top-level `name`, `description`, an optional
+`variables` list, and a list of `steps`. Supported step types:
 
-| Type | Description | Example |
-|------|-------------|---------|
+| Type | Description | Example fields |
+|------|-------------|----------------|
 | `run` | Run a shell command | `cmd: npm install` |
-| `copy` | Copy a file | `src`, `dest` |
+| `copy` | Copy a file or directory | `src`, `dest` |
+| `move` | Move/rename a file or directory | `src`, `dest` |
+| `mkdir` | Create a directory | `path` |
+| `remove` | Delete a file or directory | `path`, `ignore_missing` |
 | `append` | Append content to a file | `file`, `content` |
 | `git` | Git operations | `add`, `commit_message`, `username`, `email` |
+
+Any step may include a `when` field (`windows`, `unix`, `linux`, `macos`) so it
+only runs on matching platforms.
 
 Minimal profile example:
 
 ```yaml
+name: My Profile
+description: A tiny example profile.
 steps:
   - type: run
     name: say-hello
     cmd: echo "Hello from Cliex!"
 ```
 
+### Variables
+
+Declare variables and reference them with `{{ name }}` in any step string.
+`project_name` and `project_path` are always available.
+
+```yaml
+name: My Profile
+description: Example with variables.
+variables:
+  - name: app_title
+    prompt: "App title"
+    default: "My App"
+steps:
+  - type: append
+    file: README.md
+    content: "# {{ app_title }} ({{ project_name }})\n"
+```
+
+Provide values with `--var app_title="..."`, accept defaults with `--yes`, or
+answer the interactive prompt.
+
 ### Where profiles are stored
 
 - **Package** (bundled with Cliex): `cliex/templates/setups/`
 - **User** (your custom profiles):
-  - Windows: `%APPDATA%\cliex\setups\`
+  - Windows: `%APPDATA%\cliex\setups\` (i.e. `...\AppData\Roaming\cliex\setups\`)
   - macOS / Linux: `~/.config/cliex/setups/`
 
-User-created profiles override package profiles with the same name.
+User-created profiles override package profiles with the same key (filename).
+Updating Cliex never touches your user profiles. The default-profile setting is
+stored in `config.yaml` next to your setups directory.
 
 ## Project structure
 
@@ -214,8 +308,9 @@ cliex/
 │   ├── cli/
 │   │   └── new.py           # New project creation logic
 │   ├── setup/
-│   │   ├── registry.py      # Setup profile registry
+│   │   ├── registry.py      # Profile registry, default, validation
 │   │   ├── loader.py        # YAML file loader
+│   │   ├── variables.py     # Variable prompts + {{ }} substitution
 │   │   └── executor.py      # Step executor
 │   ├── runner/
 │   │   └── runner.py        # Subprocess runner

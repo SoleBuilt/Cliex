@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional
 
 import yaml  # type: ignore[import]
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SETUP_DIR = PACKAGE_ROOT / "templates" / "setups"
-PACKAGE_METADATA_FILE = PACKAGE_SETUP_DIR / "cliex-metadata.yaml"
+
+# The bundled default profile. Changes only when the maintainer edits source.
+BUILTIN_DEFAULT_KEY = "nextjs-setup"
+
+# Legacy file that older versions stored central metadata in. We no longer use
+# it (metadata is now embedded in each profile), but keep skipping it so a
+# leftover copy in a user directory is never treated as a profile.
+_LEGACY_METADATA_NAME = "cliex-metadata.yaml"
+_CONFIG_NAME = "config.yaml"
 
 
 def _get_windows_config_dir() -> Path:
@@ -26,8 +35,7 @@ def _get_unix_config_dir() -> Path:
 
 
 def get_user_config_dir() -> Path:
-    os_name = os.name
-    if os_name == "nt":
+    if os.name == "nt":
         return _get_windows_config_dir()
     return _get_unix_config_dir()
 
@@ -36,144 +44,320 @@ def get_user_setup_dir() -> Path:
     return get_user_config_dir() / "setups"
 
 
-def get_writeable_setup_dir() -> Path:
-    """Return the best writable directory for setup files.
-
-    In development mode (editable install), the package templates directory
-    is writable, so we use it directly. In production mode (installed package
-    or compiled .exe), we fall back to the user config directory.
-    """
-    import tempfile # type: ignore
-
-    # Test if the package setup directory is writable
-    try:
-        test_file = PACKAGE_SETUP_DIR / ".write_test"
-        test_file.touch()
-        test_file.unlink()
-        return PACKAGE_SETUP_DIR
-    except OSError:
-        # Not writable, fall back to user config directory
-        user_dir = get_user_setup_dir()
-        user_dir.mkdir(parents=True, exist_ok=True)
-        return user_dir
+def _user_config_file() -> Path:
+    """Path to the small user config holding the default profile key."""
+    return get_user_config_dir() / _CONFIG_NAME
 
 
-def _load_metadata_file(path: Path) -> Dict[str, Dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# User default (stored separately from profiles so shared files never carry it)
+# ---------------------------------------------------------------------------
+
+def read_user_default() -> Optional[str]:
+    path = _user_config_file()
     if not path.exists():
-        return {}
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    default = data.get("default")
+    return default if isinstance(default, str) else None
 
-    with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
+
+def write_user_default(key: str) -> None:
+    path = _user_config_file()
+    data: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                loaded = yaml.safe_load(handle)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, yaml.YAMLError):
+            data = {}
+    data["default"] = key
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
+
+
+def clear_user_default() -> None:
+    path = _user_config_file()
+    if not path.exists():
+        return
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return
+    if not isinstance(data, dict) or "default" not in data:
+        return
+    data.pop("default", None)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------
+# Embedded metadata + file scanning
+# ---------------------------------------------------------------------------
+
+def _read_embedded_metadata(path: Path) -> Dict[str, Any]:
+    """Read name/description embedded in a profile file. Never raises.
+
+    Returns a dict with keys: name, description, valid, error (optional).
+    """
+    fallback = {"name": path.stem, "description": ""}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as exc:
+        return {**fallback, "valid": False, "error": f"Invalid YAML: {exc}"}
 
     if not isinstance(data, dict):
-        return {}
+        return {**fallback, "valid": False, "error": "Profile must be a mapping"}
 
-    if "profiles" not in data:
-        return {}
-    
-    profiles_raw = data["profiles"]     # type: ignore[assignment]
-    if not isinstance(profiles_raw, dict):
-        return {}
+    name = data.get("name")
+    description = data.get("description")
+    steps = data.get("steps")
 
-    return cast(Dict[str, Dict[str, Any]], profiles_raw)
-
-
-def _scan_setup_files(directory: Path) -> Dict[str, Path]:
-    result: Dict[str, Path] = {}
-    if not directory.exists():
-        return result
-
-    for path in directory.glob("*.yaml"):
-        if path.name == "cliex-metadata.yaml":
-            continue
-        key = path.stem
-        result[key] = path
-
+    result: Dict[str, Any] = {
+        "name": name if isinstance(name, str) and name else path.stem,
+        "description": description if isinstance(description, str) else "",
+    }
+    if not isinstance(steps, list):
+        result["valid"] = False
+        result["error"] = "Missing or invalid 'steps' list"
+    else:
+        result["valid"] = True
     return result
 
 
+def _scan_dir(directory: Path) -> Dict[str, Path]:
+    result: Dict[str, Path] = {}
+    if not directory.exists():
+        return result
+    for path in directory.glob("*.yaml"):
+        if path.name == _LEGACY_METADATA_NAME:
+            continue
+        result[path.stem] = path
+    return result
+
+
+def _package_files() -> Dict[str, Path]:
+    return _scan_dir(PACKAGE_SETUP_DIR)
+
+
+def _user_files() -> Dict[str, Path]:
+    return _scan_dir(get_user_setup_dir())
+
+
+def get_user_setup_path(key: str) -> Path:
+    return get_user_setup_dir() / f"{key}.yaml"
+
+
+def get_builtin_setup_path(key: str) -> Optional[Path]:
+    return _package_files().get(key)
+
+
+def fork_builtin_to_user(key: str) -> Path:
+    """Copy a built-in profile into the user setup dir (creates an override)."""
+    src = get_builtin_setup_path(key)
+    if src is None:
+        raise FileNotFoundError(f"No built-in profile named '{key}' to fork.")
+    user_dir = get_user_setup_dir()
+    user_dir.mkdir(parents=True, exist_ok=True)
+    dest = get_user_setup_path(key)
+    shutil.copy(src, dest)
+    return dest
+
+
+def delete_user_override(key: str) -> bool:
+    """Delete a user profile file. Returns True if a file was removed."""
+    path = get_user_setup_path(key)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+
+def _effective_default_key() -> Optional[str]:
+    user_default = read_user_default()
+    if user_default:
+        return user_default
+    return BUILTIN_DEFAULT_KEY
+
+
 def load_registry() -> Dict[str, Dict[str, Any]]:
+    """Build the merged registry of profiles (built-in + user, user wins)."""
     profiles: Dict[str, Dict[str, Any]] = {}
 
-    package_metadata = _load_metadata_file(PACKAGE_METADATA_FILE)
-    package_files = _scan_setup_files(PACKAGE_SETUP_DIR)
+    package_files = _package_files()
+    user_files = _user_files()
+    default_key = _effective_default_key()
 
     for key, path in package_files.items():
-        metadata = package_metadata.get(key, {})
+        meta = _read_embedded_metadata(path)
         profiles[key] = {
             "key": key,
-            "name": metadata.get("name", key),
-            "description": metadata.get("description", ""),
-            "default": bool(metadata.get("default", False)),
+            "name": meta["name"],
+            "description": meta["description"],
             "path": path,
-            "source": "package",
+            "source": "built-in",
+            "valid": meta["valid"],
+            "error": meta.get("error"),
+            "default": False,
         }
-
-    user_dir = get_user_setup_dir()
-    user_metadata = _load_metadata_file(user_dir / "cliex-metadata.yaml")
-    user_files = _scan_setup_files(user_dir)
 
     for key, path in user_files.items():
-        metadata = user_metadata.get(key, {})
+        meta = _read_embedded_metadata(path)
+        source = "user override" if key in package_files else "user custom"
         profiles[key] = {
             "key": key,
-            "name": metadata.get("name", key),
-            "description": metadata.get("description", ""),
-            "default": bool(metadata.get("default", False)),
+            "name": meta["name"],
+            "description": meta["description"],
             "path": path,
-            "source": "user",
+            "source": source,
+            "valid": meta["valid"],
+            "error": meta.get("error"),
+            "default": False,
         }
+
+    if default_key and default_key in profiles:
+        profiles[default_key]["default"] = True
 
     return profiles
 
 
 def get_default_profile() -> Optional[Dict[str, Any]]:
     registry = load_registry()
-
-    user_defaults = [
-        profile for profile in registry.values()
-        if profile["source"] == "user" and profile["default"]
-    ]
-    if len(user_defaults) > 1:
-        raise RuntimeError("More than one user setup profile is marked default.")
-    if user_defaults:
-        return user_defaults[0]
-
-    package_defaults = [
-        profile for profile in registry.values()
-        if profile["source"] == "package" and profile["default"]
-    ]
-    if len(package_defaults) > 1:
-        raise RuntimeError("More than one packaged setup profile is marked default.")
-    if package_defaults:
-        return package_defaults[0]
-
+    key = _effective_default_key()
+    if key and key in registry:
+        return registry[key]
     return None
 
 
 def resolve_setup_path(setup_arg: Optional[str]) -> Path:
-    if setup_arg:
-        candidate = Path(setup_arg)
-        if candidate.exists() and candidate.is_file():
-            return candidate
+    if not setup_arg:
+        default_profile = get_default_profile()
+        if default_profile is None:
+            raise RuntimeError("No default setup profile found.")
+        path = default_profile["path"]
+        if not path.exists():
+            raise FileNotFoundError(f"Default setup file not found: {path}")
+        return path
 
-        registry = load_registry()
-        profile = registry.get(setup_arg)
-        if profile is not None:
-            path = profile["path"]
-            if not path.exists():
-                raise FileNotFoundError(f"Profile '{setup_arg}' setup file not found: {path}")
-            return path
+    # Forced scope: built-in only
+    if setup_arg.startswith("b:"):
+        key = setup_arg[2:]
+        path = _package_files().get(key)
+        if path is None:
+            raise RuntimeError(f"No built-in profile named '{key}'.")
+        return path
 
-        available = ", ".join(sorted(registry.keys()))
-        raise RuntimeError(
-            f"Setup profile '{setup_arg}' not found. Available profiles: {available}"
-        )
+    # Forced scope: user custom only
+    if setup_arg.startswith("u:"):
+        key = setup_arg[2:]
+        path = _user_files().get(key)
+        if path is None:
+            raise RuntimeError(f"No user profile named '{key}'.")
+        return path
 
-    default_profile = get_default_profile()
-    if default_profile is None:
-        raise RuntimeError("No default setup profile found in registry.")
-    path = default_profile["path"]
+    # Explicit file path wins
+    candidate = Path(setup_arg)
+    if candidate.exists() and candidate.is_file():
+        return candidate
+
+    # Merged registry lookup (user overrides built-in)
+    registry = load_registry()
+    profile = registry.get(setup_arg)
+    if profile is not None:
+        path = profile["path"]
+        if not path.exists():
+            raise FileNotFoundError(f"Profile '{setup_arg}' setup file not found: {path}")
+        return path
+
+    available = ", ".join(sorted(registry.keys())) or "(none)"
+    raise RuntimeError(
+        f"Setup profile '{setup_arg}' not found. Available profiles: {available}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Validation (shared by `cliex validate` and lazy checks)
+# ---------------------------------------------------------------------------
+
+_VALID_WHEN = {"windows", "unix", "linux", "macos", "darwin"}
+
+
+def validate_profile(path: Path) -> List[str]:
+    """Return a list of problem messages for a profile. Empty list = OK.
+
+    Messages prefixed with 'Warning:' are non-fatal.
+    """
+    # Imported lazily to avoid a circular import at module load.
+    from cliex.setup.executor import STEP_HANDLERS
+
+    problems: List[str] = []
+
     if not path.exists():
-        raise FileNotFoundError(f"Default setup file not found: {path}")
-    return path
+        return [f"File not found: {path}"]
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError) as exc:
+        return [f"Invalid YAML: {exc}"]
+
+    if not isinstance(data, dict):
+        return ["Profile must be a mapping (top-level keys)"]
+
+    name = data.get("name")
+    if not isinstance(name, str) or not name:
+        problems.append("Warning: missing 'name'")
+    description = data.get("description")
+    if not isinstance(description, str) or not description:
+        problems.append("Warning: missing 'description'")
+
+    variables = data.get("variables")
+    if variables is not None:
+        if not isinstance(variables, list):
+            problems.append("'variables' must be a list")
+        else:
+            for i, var in enumerate(variables, start=1):
+                if not isinstance(var, dict) or not isinstance(var.get("name"), str):
+                    problems.append(f"variable {i} must be a mapping with a 'name'")
+
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        problems.append("Missing or invalid 'steps' list")
+        return problems
+
+    for i, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            problems.append(f"step {i} must be a mapping")
+            continue
+        step_type = step.get("type")
+        if not isinstance(step_type, str):
+            problems.append(f"step {i} missing 'type'")
+        elif step_type not in STEP_HANDLERS:
+            known = ", ".join(sorted(STEP_HANDLERS))
+            problems.append(f"step {i} unknown type '{step_type}' (known: {known})")
+        step_name = step.get("name")
+        if step_name is not None and not isinstance(step_name, str):
+            problems.append(f"step {i} has invalid 'name'")
+        when = step.get("when")
+        if when is not None and (not isinstance(when, str) or when.lower() not in _VALID_WHEN):
+            problems.append(
+                f"Warning: step {i} has unknown 'when' value '{when}' "
+                f"(expected one of: {', '.join(sorted(_VALID_WHEN))})"
+            )
+
+    return problems
