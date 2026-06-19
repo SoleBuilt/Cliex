@@ -7,11 +7,10 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 from rich.console import Console
-from typing import Any, Dict
 
 from cliex.cli.new import new_project
 
