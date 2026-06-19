@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml  # type: ignore[import]
 
+from cliex.setup.types import ProfileInfo, ProfileMetadata, Source
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SETUP_DIR = PACKAGE_ROOT / "templates" / "setups"
 
@@ -64,7 +66,7 @@ def read_user_default() -> Optional[str]:
         return None
     if not isinstance(data, dict):
         return None
-    default = data.get("default")
+    default = data.get("default") # type: ignore
     return default if isinstance(default, str) else None
 
 
@@ -76,7 +78,7 @@ def write_user_default(key: str) -> None:
             with path.open("r", encoding="utf-8") as handle:
                 loaded = yaml.safe_load(handle)
             if isinstance(loaded, dict):
-                data = loaded
+                data = loaded # type: ignore
         except (OSError, yaml.YAMLError):
             data = {}
     data["default"] = key
@@ -96,7 +98,7 @@ def clear_user_default() -> None:
         return
     if not isinstance(data, dict) or "default" not in data:
         return
-    data.pop("default", None)
+    data.pop("default", None) # type: ignore
     with path.open("w", encoding="utf-8") as handle:
         yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
 
@@ -105,35 +107,32 @@ def clear_user_default() -> None:
 # Embedded metadata + file scanning
 # ---------------------------------------------------------------------------
 
-def _read_embedded_metadata(path: Path) -> Dict[str, Any]:
-    """Read name/description embedded in a profile file. Never raises.
-
-    Returns a dict with keys: name, description, valid, error (optional).
-    """
-    fallback = {"name": path.stem, "description": ""}
+def _read_embedded_metadata(path: Path) -> ProfileMetadata:
+    """Read name/description embedded in a profile file. Never raises."""
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
     except (OSError, yaml.YAMLError) as exc:
-        return {**fallback, "valid": False, "error": f"Invalid YAML: {exc}"}
+        return ProfileMetadata(
+            name=path.stem, description="", valid=False, error=f"Invalid YAML: {exc}"
+        )
 
     if not isinstance(data, dict):
-        return {**fallback, "valid": False, "error": "Profile must be a mapping"}
+        return ProfileMetadata(
+            name=path.stem, description="", valid=False, error="Profile must be a mapping"
+        )
 
-    name = data.get("name")
-    description = data.get("description")
-    steps = data.get("steps")
+    name = data.get("name") # type: ignore
+    description = data.get("description") # type: ignore
+    steps = data.get("steps") # type: ignore
 
-    result: Dict[str, Any] = {
-        "name": name if isinstance(name, str) and name else path.stem,
-        "description": description if isinstance(description, str) else "",
-    }
-    if not isinstance(steps, list):
-        result["valid"] = False
-        result["error"] = "Missing or invalid 'steps' list"
-    else:
-        result["valid"] = True
-    return result
+    valid = isinstance(steps, list)
+    return ProfileMetadata(
+        name=name if isinstance(name, str) and name else path.stem,
+        description=description if isinstance(description, str) else "",
+        valid=valid,
+        error=None if valid else "Missing or invalid 'steps' list",
+    )
 
 
 def _scan_dir(directory: Path) -> Dict[str, Path]:
@@ -195,40 +194,34 @@ def _effective_default_key() -> Optional[str]:
     return BUILTIN_DEFAULT_KEY
 
 
-def load_registry() -> Dict[str, Dict[str, Any]]:
+def _make_entry(key: str, path: Path, source: Source) -> ProfileInfo:
+    meta = _read_embedded_metadata(path)
+    return ProfileInfo(
+        key=key,
+        name=meta["name"],
+        description=meta["description"],
+        path=path,
+        source=source,
+        valid=meta["valid"],
+        error=meta["error"],
+        default=False,
+    )
+
+
+def load_registry() -> Dict[str, ProfileInfo]:
     """Build the merged registry of profiles (built-in + user, user wins)."""
-    profiles: Dict[str, Dict[str, Any]] = {}
+    profiles: Dict[str, ProfileInfo] = {}
 
     package_files = _package_files()
     user_files = _user_files()
     default_key = _effective_default_key()
 
     for key, path in package_files.items():
-        meta = _read_embedded_metadata(path)
-        profiles[key] = {
-            "key": key,
-            "name": meta["name"],
-            "description": meta["description"],
-            "path": path,
-            "source": "built-in",
-            "valid": meta["valid"],
-            "error": meta.get("error"),
-            "default": False,
-        }
+        profiles[key] = _make_entry(key, path, "built-in")
 
     for key, path in user_files.items():
-        meta = _read_embedded_metadata(path)
-        source = "user override" if key in package_files else "user custom"
-        profiles[key] = {
-            "key": key,
-            "name": meta["name"],
-            "description": meta["description"],
-            "path": path,
-            "source": source,
-            "valid": meta["valid"],
-            "error": meta.get("error"),
-            "default": False,
-        }
+        source: Source = "user override" if key in package_files else "user custom"
+        profiles[key] = _make_entry(key, path, source)
 
     if default_key and default_key in profiles:
         profiles[default_key]["default"] = True
@@ -236,7 +229,7 @@ def load_registry() -> Dict[str, Dict[str, Any]]:
     return profiles
 
 
-def get_default_profile() -> Optional[Dict[str, Any]]:
+def get_default_profile() -> Optional[ProfileInfo]:
     registry = load_registry()
     key = _effective_default_key()
     if key and key in registry:
@@ -319,41 +312,41 @@ def validate_profile(path: Path) -> List[str]:
     if not isinstance(data, dict):
         return ["Profile must be a mapping (top-level keys)"]
 
-    name = data.get("name")
+    name = data.get("name") # type: ignore
     if not isinstance(name, str) or not name:
         problems.append("Warning: missing 'name'")
-    description = data.get("description")
+    description = data.get("description") # type: ignore
     if not isinstance(description, str) or not description:
         problems.append("Warning: missing 'description'")
 
-    variables = data.get("variables")
+    variables = data.get("variables") # type: ignore
     if variables is not None:
         if not isinstance(variables, list):
             problems.append("'variables' must be a list")
         else:
-            for i, var in enumerate(variables, start=1):
-                if not isinstance(var, dict) or not isinstance(var.get("name"), str):
+            for i, var in enumerate(variables, start=1): # type: ignore
+                if not isinstance(var, dict) or not isinstance(var.get("name"), str): # type: ignore
                     problems.append(f"variable {i} must be a mapping with a 'name'")
 
-    steps = data.get("steps")
+    steps = data.get("steps") # type: ignore
     if not isinstance(steps, list):
         problems.append("Missing or invalid 'steps' list")
         return problems
 
-    for i, step in enumerate(steps, start=1):
+    for i, step in enumerate(steps, start=1): # type: ignore
         if not isinstance(step, dict):
             problems.append(f"step {i} must be a mapping")
             continue
-        step_type = step.get("type")
+        step_type = step.get("type") # type: ignore
         if not isinstance(step_type, str):
             problems.append(f"step {i} missing 'type'")
         elif step_type not in STEP_HANDLERS:
             known = ", ".join(sorted(STEP_HANDLERS))
             problems.append(f"step {i} unknown type '{step_type}' (known: {known})")
-        step_name = step.get("name")
+        step_name = step.get("name") # type: ignore
         if step_name is not None and not isinstance(step_name, str):
             problems.append(f"step {i} has invalid 'name'")
-        when = step.get("when")
+        when = step.get("when") # type: ignore
         if when is not None and (not isinstance(when, str) or when.lower() not in _VALID_WHEN):
             problems.append(
                 f"Warning: step {i} has unknown 'when' value '{when}' "
