@@ -76,3 +76,22 @@ publish:pypi:
   environment:
     name: pypi
     url: https://pypi.org/project/cliex/
+
+# Create a GitLab Release object for the tag (separate from the git tag itself).
+# Source code archives are attached automatically by GitLab.
+create:gitlab-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  script:
+    - echo "Creating GitLab release for $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Cliex $CI_COMMIT_TAG"
+    description: |
+      Cliex $CI_COMMIT_TAG
+
+      Install: `pipx install cliex` or `pip install -U cliex`
+
+      See the [README](https://github.com/DucHuynhTrung/cliex-quick#readme) for usage.
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
