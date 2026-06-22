@@ -226,12 +226,16 @@ def handle_remove(step: dict[str, Any], project_path: Path, base_path: Path) -> 
 
 
 def handle_git(step: dict[str, Any], project_path: Path, base_path: Path) -> None:
-    if "username" in step:
-        run_command(f"git config --local user.name '{step['username']}'", cwd=project_path)
+    # Use .get() truthiness so blank values (e.g. an unresolved identity) are
+    # skipped, letting git fall back to the global config instead of writing "".
+    # Double quotes work under both cmd.exe (Windows) and POSIX sh; single
+    # quotes are treated literally by cmd and would end up inside the value.
+    if step.get("username"):
+        run_command(f'git config --local user.name "{step["username"]}"', cwd=project_path)
         console.print("[green]✓ Git username configured[/green]")
 
-    if "email" in step:
-        run_command(f"git config --local user.email '{step['email']}'", cwd=project_path)
+    if step.get("email"):
+        run_command(f'git config --local user.email "{step["email"]}"', cwd=project_path)
         console.print("[green]✓ Git email configured[/green]")
 
     if "add" in step:
