@@ -260,12 +260,16 @@ STEP_HANDLERS: Dict[str, STEP_HANDLER] = {
 def _platform_matches(when: str) -> bool:
     when = when.lower()
     is_windows = os.name == "nt"
+    is_macos = sys.platform.startswith("darwin")
     if when == "windows":
         return is_windows
-    if when in ("unix", "linux"):
-        return not is_windows and not sys.platform.startswith("darwin")
+    if when == "unix":
+        # Any POSIX / Unix-like OS (Linux, macOS, BSD, ...), i.e. not Windows.
+        return not is_windows
+    if when == "linux":
+        return not is_windows and not is_macos
     if when in ("macos", "darwin"):
-        return sys.platform.startswith("darwin")
+        return is_macos
     # Unknown value: don't skip (validator already warns).
     return True
 
