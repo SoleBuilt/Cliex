@@ -13,6 +13,10 @@ The source code is **free and open** for the community. You may use, modify, and
 - Bootstrap a new project with a single command
 - Support for multiple setup profiles (Next.js, FastAPI, Razor, etc.)
 - Create or customize your own profiles via YAML files
+- Rich step types — run commands, copy/move files, and edit generated files
+  with idempotent `insert` / `replace`
+- Platform-specific steps via `when` (Windows / macOS / Linux)
+- Save a default git identity so the commit step never fails
 - List and manage available profiles
 - Colorful terminal output for easy progress tracking
 - Automatic checks for required tools before running
@@ -137,6 +141,50 @@ cliex new my-app -s my-profile --var git_user=Duc --var app_title="My App"
 cliex new my-app -s my-profile --yes
 ```
 
+### Set the git identity for the commit step
+
+Profiles that initialize git need a `user.name` / `user.email`, otherwise the
+commit step fails with *"unable to auto-detect email address"*. Cliex resolves
+the identity in this order:
+
+> `--username` / `--useremail` flag  →  saved default (`cliex config`)  →  your global git config
+
+Per-project (overrides the saved default for this run only):
+
+```bash
+cliex new my-app -s tauri-setup --username "Your Name" --useremail "you@example.com"
+# Short form
+cliex new my-app -s tauri-setup -un "Your Name" -ue "you@example.com"
+```
+
+Save a default once, then every `cliex new` reuses it:
+
+```bash
+# Set the default git identity
+cliex config --git-username "Your Name" --git-email "you@example.com"
+
+# Show current defaults (default profile + git identity)
+cliex config
+```
+
+The identity is stored per-user in `config.yaml` (never inside a shared
+profile). Inside a profile, the resolved values are available as the
+`{{ git_username }}` and `{{ git_email }}` variables — typically used by a
+`git` step that runs `git config --local` right after `git init`:
+
+```yaml
+- type: run
+  name: git-init
+  cmd: git init
+- type: git
+  name: git-config
+  username: "{{ git_username }}"
+  email: "{{ git_email }}"
+```
+
+If both flag and saved default are empty, the `git` step is skipped and git
+falls back to your global config.
+
 ### List available profiles
 
 ```bash
@@ -208,6 +256,9 @@ python -m cliex list
 | `cliex new [PROJECT_NAME]` | Create a new project using a setup profile |
 | `cliex new --setup <profile>` | Select a profile (`b:`/`u:` prefix or YAML file) |
 | `cliex new --var k=v` `--yes` | Provide profile variables / skip prompts |
+| `cliex new -un <name> -ue <email>` | Set git identity for this project's commit step |
+| `cliex config` | Show persistent defaults (default profile + git identity) |
+| `cliex config --git-username <n> --git-email <e>` | Save the default git identity |
 | `cliex list` | List all setup profiles |
 | `cliex registry <name>` | Create, fork, or edit a profile YAML file |
 | `cliex set-default <name>` | Set the default profile |
@@ -250,11 +301,65 @@ Each profile is a YAML file with top-level `name`, `description`, an optional
 | `move` | Move/rename a file or directory | `src`, `dest` |
 | `mkdir` | Create a directory | `path` |
 | `remove` | Delete a file or directory | `path`, `ignore_missing` |
-| `append` | Append content to a file | `file`, `content` |
+| `append` | Append content to the end of a file | `file`, `content` |
+| `insert` | Insert content at a line number or anchor | `file`, `content`, one of `line`/`after`/`before`, `skip_if_present` |
+| `replace` | Replace a literal string inside a file | `file`, `find`, `replace`, `count`, `skip_if_missing` |
 | `git` | Git operations | `add`, `commit_message`, `username`, `email` |
 
-Any step may include a `when` field (`windows`, `unix`, `linux`, `macos`) so it
-only runs on matching platforms.
+#### `insert` and `replace` (editing generated files)
+
+Use these to tweak files a scaffolder created, without shipping template
+copies. Both are **idempotent** — re-running a setup won't duplicate changes.
+
+```yaml
+# Insert a line right after the line that matches an anchor
+- type: insert
+  file: src/main.tsx
+  after: 'import App from "./App";'   # or: before: '<text>'  /  line: 3
+  content: |
+    import "./index.css";
+
+# Replace a literal string (e.g. add a plugin to an array)
+- type: replace
+  file: vite.config.ts
+  find: "plugins: [react()]"
+  replace: "plugins: [react(), tailwindcss()]"
+```
+
+- `insert`: pick **one** of `line` (1-based, inserts *before* that line),
+  `after` (inserts on the next line after the match), or `before`. With none,
+  it appends at the end. `skip_if_present: true` (default) skips when the
+  content already exists; a missing `after`/`before` anchor raises an error.
+- `replace`: replaces all occurrences by default (`count: N` limits it). If
+  `find` is absent but `replace` is already present, the step is skipped
+  (safe re-runs); set `skip_if_missing: true` to ignore a genuinely missing
+  `find` instead of erroring.
+
+### Platform-specific steps (`when`)
+
+Any step may include a `when` field so it only runs on matching platforms —
+this is how you express "if/else by OS" (write one step per platform; the
+non-matching ones are skipped):
+
+| `when` | Runs on |
+|--------|---------|
+| `windows` | Windows only |
+| `unix` | Any non-Windows OS (Linux, macOS, BSD) |
+| `linux` | Linux only |
+| `macos` / `darwin` | macOS only |
+
+A step with no `when` runs everywhere (the "else" branch).
+
+```yaml
+- type: run
+  name: redirect-stdin
+  when: windows
+  cmd: some-cli < NUL
+- type: run
+  name: redirect-stdin
+  when: unix
+  cmd: some-cli < /dev/null
+```
 
 Minimal profile example:
 
@@ -296,8 +401,9 @@ answer the interactive prompt.
   - macOS / Linux: `~/.config/cliex/setups/`
 
 User-created profiles override package profiles with the same key (filename).
-Updating Cliex never touches your user profiles. The default-profile setting is
-stored in `config.yaml` next to your setups directory.
+Updating Cliex never touches your user profiles. Per-user settings — the
+default profile and the default git identity — are stored in `config.yaml` next
+to your setups directory (never inside a shared profile).
 
 ## Project structure
 
@@ -346,11 +452,24 @@ Choose a different folder name or remove the existing directory before running a
 
 ### Git commit failed
 
-Configure git first:
+```
+*** Please tell me who you are.
+fatal: unable to auto-detect email address
+```
+
+The commit step has no git identity. Fix it with any of these (highest
+precedence first):
 
 ```bash
+# Per project, for this run only
+cliex new my-app -un "Your Name" -ue "you@example.com"
+
+# Saved default, reused by every future run
+cliex config --git-username "Your Name" --git-email "you@example.com"
+
+# Or your machine-wide global git identity
 git config --global user.name "Your Name"
-git config --global user.email "email@example.com"
+git config --global user.email "you@example.com"
 ```
 
 ### Profile not found

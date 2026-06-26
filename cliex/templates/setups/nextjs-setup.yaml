@@ -49,6 +49,11 @@ steps:
       .agent
 
   # Git (uses the user's own configured git identity)
+  - type: git
+    name: git-config
+    username: "{{ git_username }}"
+    email: "{{ git_email }}"
+
   - type: run
     name: git-add
     cmd: git add .

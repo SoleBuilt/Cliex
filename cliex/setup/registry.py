@@ -87,6 +87,52 @@ def write_user_default(key: str) -> None:
         yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
 
 
+def read_user_git() -> tuple[Optional[str], Optional[str]]:
+    """Return the (username, email) stored as the default git identity."""
+    path = _user_config_file()
+    if not path.exists():
+        return None, None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    git = data.get("git")  # type: ignore
+    if not isinstance(git, dict):
+        return None, None
+    username = git.get("username")  # type: ignore
+    email = git.get("email")  # type: ignore
+    return (
+        username if isinstance(username, str) and username else None,
+        email if isinstance(email, str) and email else None,
+    )
+
+
+def write_user_git(username: Optional[str], email: Optional[str]) -> None:
+    """Persist the default git identity. Only non-empty fields are written."""
+    path = _user_config_file()
+    data: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                loaded = yaml.safe_load(handle)
+            if isinstance(loaded, dict):
+                data = loaded  # type: ignore
+        except (OSError, yaml.YAMLError):
+            data = {}
+    git: Dict[str, Any] = data.get("git") if isinstance(data.get("git"), dict) else {}  # type: ignore
+    if username:
+        git["username"] = username
+    if email:
+        git["email"] = email
+    data["git"] = git
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.dump(data, handle, default_flow_style=False, sort_keys=False)
+
+
 def clear_user_default() -> None:
     path = _user_config_file()
     if not path.exists():

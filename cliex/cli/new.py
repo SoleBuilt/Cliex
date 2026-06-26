@@ -17,6 +17,8 @@ def new_project(
     setup_name: Optional[str] = None,
     cli_vars: Optional[Dict[str, str]] = None,
     assume_yes: bool = False,
+    git_username: Optional[str] = None,
+    git_email: Optional[str] = None,
 ) -> None:
     """
     Create a new project from a setup profile.
@@ -26,6 +28,8 @@ def new_project(
         setup_name: Optional profile key (or 'b:'/'u:' prefix) or YAML file path.
         cli_vars: Variable overrides from the command line.
         assume_yes: Skip variable prompts and use declared defaults.
+        git_username: Override git user.name for this run (else the stored default).
+        git_email: Override git user.email for this run (else the stored default).
 
     Raises:
         RuntimeError: If any critical step fails.
@@ -66,6 +70,15 @@ def new_project(
     config = load_setup_config(setup_path)
 
     context = resolve_context(config, project_name, project_path, cli_vars, assume_yes)
+
+    # Git identity available to profiles as {{ git_username }} / {{ git_email }}.
+    # Precedence: CLI flag > stored default (cliex config) > "" (git uses global).
+    from cliex.setup.registry import read_user_git
+
+    default_username, default_email = read_user_git()
+    context["git_username"] = git_username or default_username or ""
+    context["git_email"] = git_email or default_email or ""
+
     config["steps"] = render_steps(config["steps"], context)
 
     execute_setup(config, project_path)

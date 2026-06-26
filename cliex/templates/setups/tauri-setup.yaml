@@ -1,0 +1,159 @@
+name: tauri-setup
+description: 'Custom setup profile: tauri-setup'
+steps:
+  - type: run
+    name: create source tauri
+    cmd: npx create-tauri-app . --template react-ts --package-name quable-tauri-app --identifier com.duchuyntrung.quable-tauri-app --yes
+
+  - type: run
+    name: install dependencies
+    cmd: npm install
+
+  - type: run
+    name: approve esbuild
+    cmd: npm approve-scripts esbuild@0.27.7
+
+  - type: run
+    name: rebuild esbuild
+    cmd: npm rebuild esbuild
+
+  # Install Tauri plugins
+  # Redirect stdin -> tauri bỏ qua prompt "Choose which capabilities..."
+  # (nếu không, cliex chạy trong terminal sẽ bị TREO ở bước hỏi này).
+  # Windows dùng `< NUL`, Unix (Linux/macOS) dùng `< /dev/null`.
+  - type: run
+    name: install tauri dependencies
+    when: windows
+    cmd: npm run tauri add store < NUL && npm run tauri add sql < NUL && npm run tauri add autostart < NUL && npm run tauri add updater < NUL && npm run tauri add dialog < NUL
+
+  - type: run
+    name: install tauri dependencies
+    when: unix
+    cmd: npm run tauri add store < /dev/null && npm run tauri add sql < /dev/null && npm run tauri add autostart < /dev/null && npm run tauri add updater < /dev/null && npm run tauri add dialog < /dev/null
+
+  # `tauri add` cài plugin nhưng (ở chế độ non-interactive) KHÔNG thêm permission vào capability,
+  # nên thêm <plugin>:default vào src-tauri/capabilities/default.json.
+  # Idempotent: bỏ qua permission đã tồn tại -> chạy lại setup không bị trùng.
+  - type: run
+    name: add plugin permissions
+    cmd: 'node -e "const fs=require(''fs''),f=''src-tauri/capabilities/default.json'',j=JSON.parse(fs.readFileSync(f,''utf8''));[''store:default'',''sql:default'',''autostart:default'',''updater:default'',''dialog:default''].forEach(p=>{if(!j.permissions.includes(p))j.permissions.push(p)});fs.writeFileSync(f,JSON.stringify(j,null,2)+''\n'')"'
+
+  # Install React dependencies
+  - type: run
+    name: install react dependencies
+    cmd: npm install date-fns next-themes zod react-hook-form @hookform/resolvers zustand @tanstack/react-query
+
+  # Install shadcn/ui (Tailwind v4 + Vite prerequisites)
+  - type: run
+    name: install tailwind css
+    cmd: npm install -D tailwindcss @tailwindcss/vite @types/node
+
+  # vite.config.ts: thêm import path + plugin @tailwindcss/vite
+  - type: insert
+    name: vite config imports
+    file: vite.config.ts
+    after: 'import react from "@vitejs/plugin-react";'
+    content: |
+      import tailwindcss from "@tailwindcss/vite";
+      import path from "path";
+
+  # vite.config.ts: thêm tailwindcss() vào mảng plugins
+  - type: replace
+    name: vite config plugins
+    file: vite.config.ts
+    find: "plugins: [react()]"
+    replace: "plugins: [react(), tailwindcss()]"
+
+  # vite.config.ts: thêm alias "@" -> ./src
+  - type: insert
+    name: vite config alias
+    file: vite.config.ts
+    after: "plugins: [react(), tailwindcss()],"
+    content: |
+      resolve: {
+        alias: {
+          "@": path.resolve(__dirname, "./src"),
+        },
+      },
+
+  # tsconfig.json: thêm path alias "@/*" (bắt buộc cho preflight của shadcn)
+  - type: insert
+    name: tsconfig paths
+    file: tsconfig.json
+    after: '"compilerOptions": {'
+    content: |
+      "paths": { "@/*": ["./src/*"] },
+
+  # global css cho Tailwind v4 (shadcn init sẽ bổ sung theme/variables vào file này)
+  - type: append
+    name: create global css
+    file: src/index.css
+    content: |
+      @import "tailwindcss";
+
+  # import css vào main.tsx (đặt sau dòng import App; ESM import được hoist nên vị trí không quan trọng)
+  - type: insert
+    name: import global css
+    file: src/main.tsx
+    after: 'import App from "./App";'
+    content: |
+      import "./index.css";
+
+  - type: run
+    name: shadcn-init
+    cmd: npx --yes shadcn@latest init --preset b3kILCQNM --template vite --rtl --pointer --yes
+
+  - type: run
+    name: shadcn-add
+    cmd: npx --yes shadcn@latest add alert avatar badge button card dialog dropdown-menu input label form scroll-area select separator sheet sidebar skeleton table tabs textarea tooltip sonner context-menu --overwrite --yes
+
+  # Install agent skill
+  - type: run
+    name: install-agent-skill-shadcn-ui
+    cmd: npx --yes skills add shadcn/ui --agents claude --yes
+
+  - type: run
+    name: update-agent-skill-ui-ux-pro-max
+    cmd: npm install -g uipro-cli
+
+  - type: run
+    name: install-agent-skill-ui-ux-pro-max
+    cmd: uipro init --ai antigravity
+
+  # Copy skill ui-ux-pro-max vào trong folder .agent + xóa folder thừa
+  - type: copy
+    name: copy-agents-to-agent
+    src: .agents/skills
+    dest: .agent/skills
+
+  - type: remove
+    name: remove-agents-folder
+    path: .agents
+
+  # thêm .agents vào file .gitignore
+  - type: append
+    name: gitignore-agents
+    file: .gitignore
+    content: |
+      # Ignore agents folder
+      .agent
+
+  # Git
+  - type: run
+    name: git-init
+    cmd: git init
+
+  # Set git identity --local từ flag (--username/--useremail) hoặc default đã lưu
+  # (cliex config). Nếu cả hai rỗng thì step tự bỏ qua -> git dùng config global.
+  - type: git
+    name: git-config
+    username: "{{ git_username }}"
+    email: "{{ git_email }}"
+
+  - type: run
+    name: git-add
+    cmd: git add .
+
+  - type: run
+    name: git-commit
+    cmd: 'git commit -m "Cliex: Initialize project setup"'
