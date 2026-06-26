@@ -70,6 +70,120 @@ def handle_append(step: dict[str, Any], project_path: Path, base_path: Path) -> 
     console.print(f"[green]✓ Appended content to {target_path}[/green]")
 
 
+def handle_replace(step: dict[str, Any], project_path: Path, base_path: Path) -> None:
+    """Replace occurrences of a literal string inside an existing file.
+
+    Fields:
+      - file:    target file (required).
+      - find:    literal text to search for (required).
+      - replace: text to substitute in (required).
+      - count:   optional positive int; replace only the first N occurrences
+                 (default: all occurrences).
+      - skip_if_missing: when 'find' is absent, skip with a warning instead of
+                 raising (default: false). Note: if 'find' is absent but
+                 'replace' is already present, the step is always skipped so
+                 re-running a setup is safe.
+    """
+    file_name = step.get("file")
+    find = step.get("find")
+    replacement = step.get("replace")
+    if not file_name or find is None or replacement is None:
+        raise ValueError("replace step requires 'file', 'find' and 'replace'")
+
+    target_path = _resolve(file_name, project_path, base_path)
+    if not target_path.exists():
+        raise FileNotFoundError(f"File for replace not found: {target_path}")
+
+    text = target_path.read_text(encoding="utf-8")
+    find_s, repl_s = str(find), str(replacement)
+
+    if find_s not in text:
+        if repl_s and repl_s in text:
+            console.print(f"[yellow]⊘ Replace skipped, already applied in {target_path}[/yellow]")
+            return
+        if step.get("skip_if_missing", False):
+            console.print(f"[yellow]⊘ Replace skipped, text not found in {target_path}[/yellow]")
+            return
+        raise ValueError(f"replace step 'find' text not found in {target_path}: {find_s!r}")
+
+    count = step.get("count")
+    if count is None:
+        new_text = text.replace(find_s, repl_s)
+    else:
+        if not isinstance(count, int) or count < 1:
+            raise ValueError("replace step 'count' must be a positive integer")
+        new_text = text.replace(find_s, repl_s, count)
+
+    target_path.write_text(new_text, encoding="utf-8")
+    console.print(f"[green]✓ Replaced text in {target_path}[/green]")
+
+
+def handle_insert(step: dict[str, Any], project_path: Path, base_path: Path) -> None:
+    """Insert content into an existing file at a line number or anchor.
+
+    Anchor (use exactly one; falls back to appending at end if none given):
+      - line:   1-based line number; content is inserted *before* this line.
+      - after:  insert on the line *after* the first line containing this text.
+      - before: insert *before* the first line containing this text.
+
+    By default the step is skipped when the trimmed content already exists in
+    the file, so re-running a setup does not create duplicates. Set
+    'skip_if_present: false' to always insert.
+    """
+    file_name = step.get("file")
+    content = step.get("content")
+    if not file_name or content is None:
+        raise ValueError("insert step requires 'file' and 'content'")
+
+    target_path = _resolve(file_name, project_path, base_path)
+    if not target_path.exists():
+        raise FileNotFoundError(f"File for insert not found: {target_path}")
+
+    text = str(content)
+    if not text.endswith("\n"):
+        text += "\n"
+
+    existing = target_path.read_text(encoding="utf-8")
+    if step.get("skip_if_present", True) and text.strip() and text.strip() in existing:
+        console.print(f"[yellow]⊘ Insert skipped, content already in {target_path}[/yellow]")
+        return
+
+    lines = existing.splitlines(keepends=True)
+    line_no = step.get("line")
+    after = step.get("after")
+    before = step.get("before")
+
+    index: int | None = None
+    if line_no is not None:
+        if not isinstance(line_no, int) or line_no < 1:
+            raise ValueError("insert step 'line' must be a positive integer")
+        index = min(line_no - 1, len(lines))
+    elif after is not None:
+        for i, line in enumerate(lines):
+            if str(after) in line:
+                index = i + 1
+                break
+        if index is None:
+            raise ValueError(f"insert step 'after' anchor not found: {after!r}")
+    elif before is not None:
+        for i, line in enumerate(lines):
+            if str(before) in line:
+                index = i
+                break
+        if index is None:
+            raise ValueError(f"insert step 'before' anchor not found: {before!r}")
+    else:
+        index = len(lines)
+
+    # Make sure the preceding line is terminated so the insert lands cleanly.
+    if 0 < index <= len(lines) and not lines[index - 1].endswith("\n"):
+        lines[index - 1] += "\n"
+
+    lines.insert(index, text)
+    target_path.write_text("".join(lines), encoding="utf-8")
+    console.print(f"[green]✓ Inserted content into {target_path}[/green]")
+
+
 def handle_mkdir(step: dict[str, Any], project_path: Path, base_path: Path) -> None:
     path_value = step.get("path")
     if not path_value or not isinstance(path_value, str):
@@ -112,12 +226,16 @@ def handle_remove(step: dict[str, Any], project_path: Path, base_path: Path) -> 
 
 
 def handle_git(step: dict[str, Any], project_path: Path, base_path: Path) -> None:
-    if "username" in step:
-        run_command(f"git config --local user.name '{step['username']}'", cwd=project_path)
+    # Use .get() truthiness so blank values (e.g. an unresolved identity) are
+    # skipped, letting git fall back to the global config instead of writing "".
+    # Double quotes work under both cmd.exe (Windows) and POSIX sh; single
+    # quotes are treated literally by cmd and would end up inside the value.
+    if step.get("username"):
+        run_command(f'git config --local user.name "{step["username"]}"', cwd=project_path)
         console.print("[green]✓ Git username configured[/green]")
 
-    if "email" in step:
-        run_command(f"git config --local user.email '{step['email']}'", cwd=project_path)
+    if step.get("email"):
+        run_command(f'git config --local user.email "{step["email"]}"', cwd=project_path)
         console.print("[green]✓ Git email configured[/green]")
 
     if "add" in step:
@@ -134,6 +252,8 @@ STEP_HANDLERS: Dict[str, STEP_HANDLER] = {
     "run": handle_run,
     "copy": handle_copy,
     "append": handle_append,
+    "replace": handle_replace,
+    "insert": handle_insert,
     "mkdir": handle_mkdir,
     "move": handle_move,
     "remove": handle_remove,
@@ -144,12 +264,16 @@ STEP_HANDLERS: Dict[str, STEP_HANDLER] = {
 def _platform_matches(when: str) -> bool:
     when = when.lower()
     is_windows = os.name == "nt"
+    is_macos = sys.platform.startswith("darwin")
     if when == "windows":
         return is_windows
-    if when in ("unix", "linux"):
-        return not is_windows and not sys.platform.startswith("darwin")
+    if when == "unix":
+        # Any POSIX / Unix-like OS (Linux, macOS, BSD, ...), i.e. not Windows.
+        return not is_windows
+    if when == "linux":
+        return not is_windows and not is_macos
     if when in ("macos", "darwin"):
-        return sys.platform.startswith("darwin")
+        return is_macos
     # Unknown value: don't skip (validator already warns).
     return True
 

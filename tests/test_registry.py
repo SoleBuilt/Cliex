@@ -6,7 +6,7 @@ import pytest
 
 from cliex.setup import registry
 
-BUILTINS = {"nextjs-setup", "fastapi", "razor"}
+BUILTINS = {"nextjs-setup", "tauri-setup"}
 
 VALID_PROFILE = """\
 name: My Profile
@@ -42,36 +42,36 @@ def test_user_custom_profile_appears(write_user_profile):
 
 
 def test_user_override_marks_source(write_user_profile):
-    write_user_profile("fastapi", VALID_PROFILE)
+    write_user_profile("tauri-setup", VALID_PROFILE)
     reg = registry.load_registry()
-    assert reg["fastapi"]["source"] == "user override"
+    assert reg["tauri-setup"]["source"] == "user override"
 
 
 # --- resolution -------------------------------------------------------------
 
 def test_resolve_plain_uses_builtin(user_dir: Path):
-    path = registry.resolve_setup_path("fastapi")
-    assert path == registry.PACKAGE_SETUP_DIR / "fastapi.yaml"
+    path = registry.resolve_setup_path("tauri-setup")
+    assert path == registry.PACKAGE_SETUP_DIR / "tauri-setup.yaml"
 
 
 def test_resolve_plain_prefers_user_override(write_user_profile):
-    user_path = write_user_profile("fastapi", VALID_PROFILE)
-    assert registry.resolve_setup_path("fastapi") == user_path
+    user_path = write_user_profile("tauri-setup", VALID_PROFILE)
+    assert registry.resolve_setup_path("tauri-setup") == user_path
 
 
 def test_resolve_b_prefix_forces_builtin(write_user_profile):
-    write_user_profile("fastapi", VALID_PROFILE)
-    assert registry.resolve_setup_path("b:fastapi") == registry.PACKAGE_SETUP_DIR / "fastapi.yaml"
+    write_user_profile("tauri-setup", VALID_PROFILE)
+    assert registry.resolve_setup_path("b:tauri-setup") == registry.PACKAGE_SETUP_DIR / "tauri-setup.yaml"
 
 
 def test_resolve_u_prefix_forces_user(write_user_profile):
-    user_path = write_user_profile("fastapi", VALID_PROFILE)
-    assert registry.resolve_setup_path("u:fastapi") == user_path
+    user_path = write_user_profile("tauri-setup", VALID_PROFILE)
+    assert registry.resolve_setup_path("u:tauri-setup") == user_path
 
 
 def test_resolve_u_prefix_missing_raises(user_dir: Path):
     with pytest.raises(RuntimeError, match="No user profile named"):
-        registry.resolve_setup_path("u:fastapi")
+        registry.resolve_setup_path("u:tauri-setup")
 
 
 def test_resolve_b_prefix_missing_raises(user_dir: Path):
@@ -109,10 +109,10 @@ def test_default_write_read_clear(write_user_profile):
 # --- fork / delete ----------------------------------------------------------
 
 def test_fork_builtin_creates_override(user_dir: Path):
-    dest = registry.fork_builtin_to_user("fastapi")
-    assert dest == user_dir / "fastapi.yaml"
+    dest = registry.fork_builtin_to_user("tauri-setup")
+    assert dest == user_dir / "tauri-setup.yaml"
     assert dest.exists()
-    assert registry.load_registry()["fastapi"]["source"] == "user override"
+    assert registry.load_registry()["tauri-setup"]["source"] == "user override"
 
 
 def test_fork_unknown_raises(user_dir: Path):
@@ -121,11 +121,11 @@ def test_fork_unknown_raises(user_dir: Path):
 
 
 def test_delete_user_override(write_user_profile, user_dir: Path):
-    write_user_profile("fastapi", VALID_PROFILE)
-    assert registry.delete_user_override("fastapi") is True
-    assert registry.delete_user_override("fastapi") is False
+    write_user_profile("tauri-setup", VALID_PROFILE)
+    assert registry.delete_user_override("tauri-setup") is True
+    assert registry.delete_user_override("tauri-setup") is False
     # back to built-in
-    assert registry.load_registry()["fastapi"]["source"] == "built-in"
+    assert registry.load_registry()["tauri-setup"]["source"] == "built-in"
 
 
 # --- validation / embedded metadata ----------------------------------------

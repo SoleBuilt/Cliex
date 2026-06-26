@@ -61,6 +61,18 @@ def new(
         "-y",
         help="Don't prompt for variables; use declared defaults.",
     ),
+    username: Optional[str] = typer.Option(
+        None,
+        "--username",
+        "-un",
+        help="Git user.name for this project (overrides the stored default).",
+    ),
+    useremail: Optional[str] = typer.Option(
+        None,
+        "--useremail",
+        "-ue",
+        help="Git user.email for this project (overrides the stored default).",
+    ),
 ) -> None:
     """Create a new project with setup."""
     try:
@@ -68,7 +80,7 @@ def new(
             project_name = "."
 
         cli_vars = _parse_vars(var)
-        new_project(project_name, setup_name, cli_vars, assume_yes)
+        new_project(project_name, setup_name, cli_vars, assume_yes, username, useremail)
     except RuntimeError as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
@@ -216,6 +228,34 @@ def set_default(
         console.print(f"[green]✓ Default profile set to '{key}'[/green]")
     except typer.Exit:
         raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command(name="config")
+def config(
+    git_username: Optional[str] = typer.Option(
+        None, "--git-username", help="Set the default git user.name."
+    ),
+    git_email: Optional[str] = typer.Option(
+        None, "--git-email", help="Set the default git user.email."
+    ),
+) -> None:
+    """Show or set persistent cliex defaults (e.g. the default git identity)."""
+    from cliex.setup.registry import read_user_default, read_user_git, write_user_git
+
+    try:
+        if git_username or git_email:
+            write_user_git(git_username, git_email)
+            console.print("[green]✓ Default git identity updated[/green]")
+
+        default = read_user_default()
+        username, email = read_user_git()
+        console.print("[bold]cliex config[/bold]")
+        console.print(f"  default profile : {default or '(built-in)'}")
+        console.print(f"  git.username    : {username or '(unset)'}")
+        console.print(f"  git.email       : {email or '(unset)'}")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
