@@ -1,6 +1,0 @@
-name: razor-setup
-description: A Razor project setup.
-steps:
-  - type: run
-    name: create-razor-app
-    cmd: npx create-razor-app@latest . --typescript --tailwind --eslint --yes
