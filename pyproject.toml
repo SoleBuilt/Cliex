@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "cliex"
-version = "0.2.0"
+version = "0.3.0"
 description = "CLI tool setup project quickly."
 authors = [{name = "DucHuynhTrung", email = "huynhtrungduc.growth@gmail.com"}]
 readme = "README.md"
